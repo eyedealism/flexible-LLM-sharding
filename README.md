@@ -17,14 +17,14 @@ python flexible-LLM-sharding/main.py --layer_num_per_shard 1 --storage_location 
 
 ```
 
-* **Layer Sharding Control**: Define the number of layers combined into a shard, offering granular customization for different GPU situation. The flag _--layer_num_per_shard_ controls how many layers should fit into one GPU as a shard. The more layers in a shard, the more vRAM it requires. Setting to 1 will minimize vRAM usage.
+* **Layer Sharding Control**: Define the number of layers combined into a shard, offering granular customization for different GPU situation. The option _--layer_num_per_shard_ controls how many layers should fit into one GPU as a shard. The more layers in a shard, the more vRAM it requires. Setting to 1 will minimize vRAM usage.
 
-* **Adaptive Activation Storage**: Opt for RAM, vRAM, or disk for intermediate activation storage. This provides extra control over memory utilization, ensuring optimal speed and performance. The flag _--storage_location_ controls where to store the intermediate activations. It could be 'cpu' (store in RAM), 'gpu' (store in vRAM), or 'disk' (write files to a folder you choose).
+* **Adaptive Activation Storage**: Opt for RAM, vRAM, or disk for intermediate activation storage. This provides extra control over memory utilization, ensuring optimal speed and performance. The option _--storage_location_ controls where to store the intermediate activations. It could be 'cpu' (store in RAM), 'gpu' (store in vRAM), or 'disk' (write files to a folder you choose).
   
 * **Multi-GPU Flexibility**: Unleash the power of multiple GPUs, either in parallel to minimize inter-GPU traffic or in series to reduce weights loading time. The flag _--gpu_parallel_ will let multiple GPUs run in parallel, i.e. each GPU loads the whole model and works on a portion of the prompts. Customize performance to meet your specific needs.
 
-* The flags _prompt_pickle_ and _--output_file_ specific the pickle file that has the input prompts, and the output pickle file of the scores.
+* The options _--prompt_pickle_ and _--output_file_ specific the pickle file that has the input prompts, and the output pickle file of the scores.
 
-* The flag _--model_path_ is where the layer-wise weights are.
+* The option _--model_path_ is where the layer-wise weights are.
 
 A sample demo for a Kaggle competition could be found in [this notebook](https://www.kaggle.com/junxhuang/running-llm-with-flexible-sharding-technique), which shows that flexible-LLM-sharding technique has much lower vRAM requirement (6GB for 70B model) and faster inference speed than standard offloading.
