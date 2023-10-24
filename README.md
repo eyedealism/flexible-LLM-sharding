@@ -5,7 +5,7 @@ Traditional offloading methods have increasing vRAM requirements with increasing
 
 **Basic Usage**
 
-To use flexible LLM sharding, first you will need to download and convert HF weights into layerwise weight files by running prepare_weights.py. An example notebook splitting Llama2-7B model could be found [here](https://www.kaggle.com/code/junxhuang/split-llama2-7b-weights).
+To use flexible LLM sharding, first you will need to download and convert Hugging Face model checkpoints into layerwise weight files by running prepare_weights.py script. An example notebook splitting Llama2-7B model could be found [here](https://www.kaggle.com/code/junxhuang/split-llama2-7b-weights).
 
 Then you could run LLM with flexible sharding by
 ```bash
