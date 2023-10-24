@@ -1,6 +1,8 @@
+import copy
 import os
 import numpy as np
 import pickle
+import copy
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
@@ -50,8 +52,9 @@ if __name__ == "__main__":
         os.makedirs(args.disk_folder, exist_ok=True)
 
     with open(args.prompt_pickle, 'rb') as file:
-        input_prompts = pickle.load(file)
+        original_input_prompts = pickle.load(file)
 
+    input_prompts = copy.deepcopy(original_input_prompts)
     num_device = torch.cuda.device_count()
     devices = [f"cuda:{i}" for i in range(num_device)]
     device_manager = DeviceManager(args, devices)
@@ -77,12 +80,12 @@ if __name__ == "__main__":
 
         # add the newly generated token at the end of the prompts
         for prompt_idx in range(len(input_prompts)):
-            prefix, suffix = input_prompts[prompt_idx]
-            new_tokens = np.argmax(outputs[prompt_idx], axis=-1)
+            prefix, suffix = original_input_prompts[prompt_idx]
+            new_tokens = np.argmax(output_scores[prompt_idx], axis=-1)
             new_suffix = tuple([s+tokenizer.decode(t) for s, t in zip(suffix, new_tokens)])
             input_prompts[prompt_idx] = (prefix, new_suffix)
 
-    # save the results
+    # save the updated prompts
     with open(args.prompt_pickle.replace('.pkl', '_updated.pkl'), 'wb') as file:
         pickle.dump(input_prompts, file)
 
