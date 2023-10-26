@@ -1,5 +1,5 @@
 # flexible-LLM-sharding
-This repository is designed for individuals who want to run LLM locally with small vRAM (GPU memory) and RAM. It facilitates the efficient execution of unquantized LLM's (such as Llama2-70B) with vRAM&ge;6GB and RAM&ge;8GB, i.e. when standard offloading does not work.
+This repository is designed for individuals who want to run LLM locally with small vRAM (GPU memory) and RAM. It facilitates the efficient execution of unquantized LLM's (such as LLaMA2-70B) with vRAM&ge;6GB and RAM&ge;8GB, i.e. when standard offloading does not work.
 
 Traditional offloading methods have increasing vRAM requirements with increasing model size. For example, for 70B model loaded in float16 dtype it takes ~130GB. Standard Offloading Methods would require the total of vRAM and RAM to be bigger than this value. Assume the RAM is 64 GB, then it needs two A100 40GB which may not be availalbe for all NLPers. In contrast, Flexible-LLM-Sharding simplifies the process, enabling seamless execution of 70B-parameter models on GPUs with only 6GB of vRAM. This not only breaks barriers but also emphasizes the critical significance of minimal vRAM requirements.
 
