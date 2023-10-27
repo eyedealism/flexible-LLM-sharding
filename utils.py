@@ -13,6 +13,7 @@ from safetensors.torch import load as safetensors_load
 
 max_token_len = 4096  # Llama token max length
 
+
 # Function to clean RAM & vRAM
 def clean_memory():
     gc.collect()
@@ -22,17 +23,16 @@ def clean_memory():
 
 class DeviceManager:
     """
-	Thread-safe class to load the weights of the model.
-	The weights are loaded to cpu and can be accessed with get_state_dict().
-	parameter "max_layer_num" control how many layers can be store in RAM at the same time (must >= 1)
-	If args.gpu_parallel, then multiple GPUs will work parallelly; otherwise, GPUs will work in a series.
+	Thread-safe class to manage multiple GPUs.
+	parameter "max_layer_num" control how many layers can be store in RAM (must >= 1) in data_parallel mode.
+	If args.data_parallel, then multiple GPUs will split the data; otherwise, GPUs will split the model.
 	"""
 
     def __init__(self, args, devices, max_layer_num=1, ):
         assert max_layer_num >= 1, "Must set max_layer_num >= 1 to allow loading a layer"
         self.args = args
         self.devices = devices
-        if args.gpu_parallel:  # only read the layers to cpu once to reduce IO load
+        if args.data_parallel:  # only read the layers to cpu once to reduce IO load
             self.max_layer_num = max_layer_num
             self.layer2state_dict = {}
             self.layer2used_device = dict()
@@ -49,7 +49,7 @@ class DeviceManager:
                 print(f'{device} waiting {layer}')
                 self.condition.wait()
 
-            with self.lock:  # only allow one thread to modify weightsloader
+            with self.lock:  # only allow one thread to modify the device manager
                 result = self.layer2state_dict[layer]
                 self.layer2used_device[layer].add(device)
                 if len(self.layer2used_device[layer]) == len(self.devices):  # all devices have used this layer
@@ -59,7 +59,7 @@ class DeviceManager:
                 return result
 
     def send_device_request(self, device, layer, ):  # request to load a layer to RAM
-        with self.lock:  # only allow one thread to modify weightsloader
+        with self.lock:  # only allow one thread to modify the device manager
             if layer not in self.layer2used_device and layer not in self.waiting_queue:  # new request
                 self.waiting_queue.append(layer)
                 self.clean_waiting_queue()
@@ -79,17 +79,17 @@ class DeviceManager:
 class ShardedLlama:
     def __init__(self, args, device_manager, device="cuda:0", dtype=torch.float16):
         """
-		Sharded version of LlamaForCausalLM : the model is splitted into layer shards to reduce GPU memory usage.
-		During the forward pass, the inputs are processed shard by shard, and the GPU memory is freed after each shard.
-		The intermediate activations could be saved in vRAM, RAM, or even disk (slower due to the exact IO load),
-		according to the parameter ''.
+        Sharded version of LlamaForCausalLM : the model is splitted into shards to reduce GPU memory usage.
+        During the forward pass, the inputs are processed shard by shard, and the GPU memory is freed after each shard.
+        The intermediate activations could be saved in vRAM, RAM, or even disk (slower due to the exact IO load),
+        according to the argument 'storage_location'.
 
-		Parameters
-		----------
-		args : arguments of control parameters
-		device : str, by default "cuda:0"
-		dtype : torch.dtype, by default torch.float16
-		"""
+        Parameters
+        ----------
+        args : arguments of control parameters
+        device : str, by default "cuda:0"
+        dtype : torch.dtype, by default torch.float16
+        """
 
         # Save parameters
         self.args = args
@@ -103,8 +103,8 @@ class ShardedLlama:
         self.tokenizer.pad_token = self.tokenizer.eos_token
         self.tokenizer.padding_side = "right"
         self.init_model()
-        self.layer_names = ["model.embed_tokens"] + [f"model.layers.{i}" for i in
-                                                     range(len(self.model.model.layers))] + ["model.norm", "lm_head"]
+        self.layer_names = ["model.embed_tokens"] + [f"model.layers.{i}"
+                                                     for i in range(len(self.model.model.layers))] + ["model.norm", "lm_head"]
 
     def init_model(self):
         # Load meta model (no memory used)
@@ -119,7 +119,7 @@ class ShardedLlama:
             set_module_tensor_to_device(self.model, buffer_name, self.device, value=buffer, dtype=self.dtype)
 
     def load_layer_to_gpu(self, layer_name):
-        if self.args.gpu_parallel:
+        if self.args.data_parallel:
             self.device_manager.send_device_request(self.device, layer_name, )
             state_dict = self.device_manager.get_state_dict(self.device, layer_name, )
         else:
@@ -141,7 +141,7 @@ class ShardedLlama:
         gpu_rank = self.device_manager.devices.index(self.device)
 
         # split the model into N shards so that the layer number in each shard <= layer_num_per_shard
-        if self.args.gpu_parallel:  # each gpu loads all the shards and has individual activation_dict/prompt2layer/suffix_eos
+        if self.args.data_parallel:  # each gpu loads all the shards and has individual activation_dict/prompt2layer/suffix_eos
             num_shards = np.ceil(len(self.layers) / self.args.layer_num_per_shard)
             model_shards = np.array_split(np.arange(len(self.layers)), num_shards)
             activation_dict = dict()
@@ -167,13 +167,13 @@ class ShardedLlama:
                 else:
                     activation_dict[prompt_idx] = (None, suffix.cpu())
             else:  # disk
-                if gpu_rank == num_gpu - 1 or self.args.gpu_parallel:  # write to disk
+                if gpu_rank == num_gpu - 1 or self.args.data_parallel:  # write to disk
                     np.save(
-                        f'{self.args.disk_folder}/suffix{gpu_rank if self.args.gpu_parallel else ""}-{prompt_idx:05d}.npy',
+                        f'{self.args.disk_folder}/suffix{gpu_rank if self.args.data_parallel else ""}-{prompt_idx:05d}.npy',
                         suffix.cpu().numpy(), )
                     if layer_idx < len(self.layers) - 2:
                         np.save(
-                            f'{self.args.disk_folder}/prefix{gpu_rank if self.args.gpu_parallel else ""}-{prompt_idx:05d}.npy',
+                            f'{self.args.disk_folder}/prefix{gpu_rank if self.args.data_parallel else ""}-{prompt_idx:05d}.npy',
                             prefix.cpu().numpy(), )
                 else:  # save in shared dict
                     while len(activation_dict) >= self.args.max_activation_in_cpu:
@@ -194,13 +194,13 @@ class ShardedLlama:
                 if prefix is not None:
                     prefix = prefix.to(self.device)
             else:  # disk
-                if gpu_rank == 0 or self.args.gpu_parallel:  # read from disk
+                if gpu_rank == 0 or self.args.data_parallel:  # read from disk
                     suffix = torch.tensor(np.load(
-                        f'{self.args.disk_folder}/suffix{gpu_rank if self.args.gpu_parallel else ""}-{prompt_idx:05d}.npy', )).to(
+                        f'{self.args.disk_folder}/suffix{gpu_rank if self.args.data_parallel else ""}-{prompt_idx:05d}.npy', )).to(
                         self.device)
                     if layer_idx < len(self.layers) - 1:
                         prefix = torch.tensor(np.load(
-                            f'{self.args.disk_folder}/prefix{gpu_rank if self.args.gpu_parallel else ""}-{prompt_idx:05d}.npy', )).to(
+                            f'{self.args.disk_folder}/prefix{gpu_rank if self.args.data_parallel else ""}-{prompt_idx:05d}.npy', )).to(
                             self.device)
                     else:
                         prefix = None
@@ -281,7 +281,7 @@ class ShardedLlama:
                         elif layer_name == "model.norm":  # second last layer
                             # Only keep the last token
                             prefix = None
-                            new_token_pos = suffix_eos[prompt_idx].cpu() if self.args.gpu_parallel else \
+                            new_token_pos = suffix_eos[prompt_idx].cpu() if self.args.data_parallel else \
                                 self.device_manager.suffix_eos[prompt_idx].cpu()
                             suffix = layer(suffix[torch.arange(suffix.shape[0]), new_token_pos][:, None])
                         else:  # last layer

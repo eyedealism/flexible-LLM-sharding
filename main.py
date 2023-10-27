@@ -13,7 +13,7 @@ from utils import DeviceManager, ShardedLlama
 
 def run_sharded_llama(device, prompt_list, device_manager, args):
     model = ShardedLlama(args, device_manager, device=device)
-    if not args.gpu_parallel and device != device_manager.devices[0]:  # don't need actual prompts
+    if not args.data_parallel and device != device_manager.devices[0]:  # don't need actual prompts
         prompt_list = [None] * len(prompt_list)
 
     batch_ends = [len(prompt_list) // args.num_batch * i for i in range(1, args.num_batch)] + [len(prompt_list)]
@@ -33,13 +33,14 @@ if __name__ == "__main__":
     parser.add_argument('--output_file', type=str, required=True, help="Path to the LLM output scores file")
     parser.add_argument('--num_batch', type=int, default=1)
     parser.add_argument('--layer_num_per_shard', type=int,
-                        default=1)  # suggest to use 1 for gpu_parallel mode; and as largse as vRAM allows for gpu_series mode
+                        default=1)  # For data_parallel mode, suggest to use 1; and as large as vRAM allows for model parallel mode
     parser.add_argument('--storage_location', type=str, default='cpu',
                         help="'gpu': use vRAM to store intermediate activations, 'cpu': use RAM, 'disk': use disk")
     parser.add_argument('--max_activation_in_cpu', type=int, default=100)
-    parser.add_argument('--gpu_parallel', type=bool, default=False, required=False,
+    parser.add_argument('--data_parallel', type=bool, default=False, required=False,
                         # only matters if multiple GPUs are available
-                        help="if gpu_parallel, multiple GPUs will run in parallel with the same layers; if False, multiple GPUs will run in series and load a portion of the layers")
+                        help="if True, then multiple GPUs will run with data parallelism; "
+                             "if False, multiple GPUs will run with model parallelism.")
     parser.add_argument('--disk_folder', type=str, default='./temp',
                         help="folder path for writing files of intermediate activations in 'disk' mode")
     parser.add_argument('--num_gen_token', type=int, default=1, help="how many new tokens to be generated")
@@ -62,14 +63,17 @@ if __name__ == "__main__":
     # loop K times to generate K new tokens
     output_scores = []
     for i_new in range(args.num_gen_token):
-        if args.gpu_parallel:  # devices run in parallel
-            with ThreadPoolExecutor() as executor:
-                input_prompts = np.array(input_prompts, dtype=object)
-                outputs = list(executor.map(run_model_wrapped, devices, np.array_split(input_prompts, num_device), ))
-        else:  # devices run in series
-            with ThreadPoolExecutor() as executor:
-                outputs = list(executor.map(run_model_wrapped, devices, [input_prompts] * num_device, ))
-        outputs = sum(outputs, [])
+        if num_device > 1:  # multiple GPUs are available
+            if args.data_parallel:  # GPUs run with data parallel
+                with ThreadPoolExecutor() as executor:
+                    input_prompts = np.array(input_prompts, dtype=object)
+                    outputs = list(executor.map(run_model_wrapped, devices, np.array_split(input_prompts, num_device), ))
+            else:  # GPUs run with model parallel
+                with ThreadPoolExecutor() as executor:
+                    outputs = list(executor.map(run_model_wrapped, devices, [input_prompts] * num_device, ))
+            outputs = sum(outputs, [])
+        else:  # only one GPU
+            outputs = run_model_wrapped(devices[0], input_prompts)
 
         if i_new == 0:
             output_scores = outputs
