@@ -21,7 +21,8 @@ python flexible-LLM-sharding/main.py --layer_num_per_shard 1 --storage_location 
 
 * **Adaptive Activation Storage**: Opt for RAM, vRAM, or disk for intermediate activation storage. This provides extra control over memory utilization, ensuring optimal speed and performance. The option _--storage_location_ controls where to store the intermediate activations. It could be 'cpu' (store in RAM), 'gpu' (store in vRAM), or 'disk' (write files to a folder you choose).
   
-* **Multi-GPU Flexibility**: Unleash the power of multiple GPUs, either in parallel to minimize inter-GPU traffic or in series to reduce weights loading time. The flag _--gpu_parallel_ will let multiple GPUs run in parallel, i.e. each GPU loads the whole model and works on a portion of the prompts. Customize performance to meet your specific needs.
+* **Multi-GPU Flexibility**: Unleash the power of multiple GPUs, you could either use data parallelism or model parallelism (see figure below). By default we use model parallel. The flag _--data_parallel_ will let multiple GPUs run with data parallel, i.e. each GPU loads the whole model and works on a portion of the prompts.
+  ![Example of two multi-GPU parallelism modes](multigpu_flexibility.png)
 
 * The options _--prompt_pickle_ and _--output_file_ specific the pickle file that has the input prompts, and the output pickle file of the scores.
 
